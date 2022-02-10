@@ -64,8 +64,7 @@ public:
 	llvm_expr_function_prototype *find_function_prototype(functions_t::key_type id);
 
 	void codegen_store(const llvm_expr &ptr, const llvm_expr &variable);
-	void codegen_store_matrix(const llvm_expr &ptr, const llvm_expr &variable);
-	void codegen_load(const llvm_expr &ptr, std::shared_ptr<llvm_expr_local_variable> lhe);
+	void codegen_load(const llvm_expr &ptr, std::shared_ptr<llvm_expr> lhe);
 
 	void codegen_shader_input_loads(llvm_expr_local_variable *entry_point_input_pointer,
 	                                const vector<llvm_expr_global_variable *> &input_variables,
@@ -91,6 +90,7 @@ public:
 	llvm::GlobalVariable *llvm_expr_codegen(shared_ptr<llvm_expr_global_variable> variable) override;
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_constant> constant) override;
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_composite> composite) override;
+	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_composite_extract> extract) override;
 	llvm::Function *llvm_expr_codegen(shared_ptr<llvm_expr_function_prototype> func_proto) override;
 	llvm::Function *llvm_expr_codegen(shared_ptr<llvm_expr_function> func) override;
 	llvm::GetElementPtrInst *llvm_expr_codegen(shared_ptr<llvm_expr_access_chain> access_chain) override;
@@ -99,6 +99,7 @@ public:
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_add> add) override;
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_sub> sub) override;
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_mul> mul) override;
+	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_mul_matrix> mul) override;
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_div> div) override;
 
 	void *jit_compile(const string &entry_point_name);
@@ -111,7 +112,7 @@ public:
 private:
 	llvm::Constant *llvm_expr_codegen_num_literal(llvm_expr_constant &constant, uint32_t col, uint32_t row,
 	                                              const string &name = string(""));
-	llvm::AllocaInst *create_llvm_alloca(llvm_expr &variable);
+	llvm::AllocaInst *create_llvm_alloca(const llvm_expr &variable);
 	llvm::Constant *construct_int32_immediate(int32_t val);
 	llvm::Constant *construct_f32_immediate(float val);
 	llvm::GlobalVariable *codegen_global_variable(const SPIRType &spir_type, const string &name);
@@ -119,9 +120,12 @@ private:
 	llvm::Value *llvm_expr_codegen_const_vector(llvm_expr_constant &constant);
 	llvm::Value *llvm_expr_codegen_const_matrix(llvm_expr_constant &constant);
 	llvm::Value *llvm_expr_codegen_vector(const llvm_expr_composite &composite);
-	llvm::Value *llvm_expr_codegen_matrix(const llvm_expr_composite &composite);
+	llvm::Value *llvm_expr_codegen_matrix(llvm_expr_composite &composite);
 
 	size_t calc_alignment(const SPIRType &type);
+	llvm::Value *gep_matrix_column(const llvm_expr &matrix, uint32_t column);
+	void codegen_store_matrix(const llvm_expr &ptr, const llvm_expr &variable);
+	void codegen_load_matrix(const llvm_expr &ptr, const llvm_expr &variable);
 
 	void add_global_variable(global_variables_t::key_type key, global_variables_t::mapped_type type);
 	void add_local_variable(local_variables_t::key_type key, local_variables_t::mapped_type type);

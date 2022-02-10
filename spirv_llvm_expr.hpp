@@ -70,6 +70,7 @@ class llvm_expr_local_variable;
 class llvm_expr_global_variable;
 class llvm_expr_constant;
 class llvm_expr_composite;
+class llvm_expr_composite_extract;
 class llvm_expr_function_prototype;
 class llvm_expr_function;
 class llvm_expr_access_chain;
@@ -78,6 +79,7 @@ class llvm_expr_type_cast;
 class llvm_expr_add;
 class llvm_expr_sub;
 class llvm_expr_mul;
+class llvm_expr_mul_matrix;
 class llvm_expr_div;
 
 class llvm_expr_codegenerator
@@ -87,6 +89,7 @@ public:
 	virtual llvm::GlobalVariable *llvm_expr_codegen(shared_ptr<llvm_expr_global_variable> variable) = 0;
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_constant> constant) = 0;
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_composite> composite) = 0;
+	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_composite_extract> extract) = 0;
 	virtual llvm::Function *llvm_expr_codegen(shared_ptr<llvm_expr_function_prototype> func_proto) = 0;
 	virtual llvm::Function *llvm_expr_codegen(shared_ptr<llvm_expr_function> func) = 0;
 	virtual llvm::GetElementPtrInst *llvm_expr_codegen(shared_ptr<llvm_expr_access_chain> access_chain) = 0;
@@ -95,6 +98,7 @@ public:
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_add> add) = 0;
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_sub> sub) = 0;
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_mul> mul) = 0;
+	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_mul_matrix> mul) = 0;
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_div> div) = 0;
 };
 
@@ -171,6 +175,26 @@ public:
 	}
 
 	vector<std::shared_ptr<llvm_expr>> m_members;
+};
+
+class llvm_expr_composite_extract : public llvm_expr, public std::enable_shared_from_this<llvm_expr_composite_extract>
+{
+public:
+	llvm_expr_composite_extract(const llvm_expr &src_composite, vector<uint32_t> &indices, const string &name,
+	                            uint32_t id, const SPIRType *spir_type)
+	    : llvm_expr(name, id, spir_type)
+	    , m_src_composite(src_composite)
+	    , m_indices(std::move(indices))
+	{
+	}
+
+	llvm::Value *codegen(llvm_expr_codegenerator &generator) override
+	{
+		return generator.llvm_expr_codegen(shared_from_this());
+	}
+
+	const llvm_expr &m_src_composite;
+	vector<uint32_t> m_indices;
 };
 
 class llvm_expr_function_prototype : public llvm_expr, public std::enable_shared_from_this<llvm_expr_function_prototype>
@@ -309,6 +333,25 @@ class llvm_expr_mul : public llvm_expr, public std::enable_shared_from_this<llvm
 {
 public:
 	llvm_expr_mul(llvm_expr *left, llvm_expr *right, const string &name, uint32_t id, const SPIRType *spir_type)
+	    : llvm_expr(name, id, spir_type)
+	    , m_left(*left)
+	    , m_right(*right)
+	{
+		assert(m_left.m_spir_type.basetype == m_right.m_spir_type.basetype);
+	}
+
+	llvm::Value *codegen(llvm_expr_codegenerator &generator) override
+	{
+		return generator.llvm_expr_codegen(shared_from_this());
+	}
+
+	const llvm_expr &m_left, &m_right;
+};
+
+class llvm_expr_mul_matrix : public llvm_expr, public std::enable_shared_from_this<llvm_expr_mul_matrix>
+{
+public:
+	llvm_expr_mul_matrix(llvm_expr *left, llvm_expr *right, const string &name, uint32_t id, const SPIRType *spir_type)
 	    : llvm_expr(name, id, spir_type)
 	    , m_left(*left)
 	    , m_right(*right)

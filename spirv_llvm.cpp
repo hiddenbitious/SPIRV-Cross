@@ -487,8 +487,11 @@ void CompilerLLVM::emit_instruction(const Instruction &instruction)
 
 		std::shared_ptr<llvm_expr_local_variable> lhe =
 		    std::make_shared<llvm_expr_local_variable>(to_name(result), result, &get<SPIRType>(result_type));
-		llvm_expr *rhe_ptr = m_pimpl->find_variable(ptr);
-		m_pimpl->codegen_load(*rhe_ptr, lhe);
+
+		llvm_expr *llvm_ptr = m_pimpl->find_variable(ptr);
+		assert(llvm_ptr);
+
+		m_pimpl->codegen_load(*llvm_ptr, lhe);
 	}
 	break;
 
@@ -527,6 +530,29 @@ void CompilerLLVM::emit_instruction(const Instruction &instruction)
 	}
 	break;
 
+	case OpCompositeExtract:
+	{
+		const uint32_t extract_type{ ops[0] };
+		const uint32_t result{ ops[1] };
+		const uint32_t composite{ ops[2] };
+
+		vector<uint32_t> indices;
+		indices.reserve(length - 3);
+
+		for (uint32_t i = 3; i < length; ++i)
+		{
+			indices.push_back(ops[i]);
+		}
+
+		llvm_expr *llvm_composite = m_pimpl->find_variable(composite);
+
+		const SPIRType &extract_spir_type = get<SPIRType>(extract_type);
+		std::shared_ptr<llvm_expr_composite_extract> extract = std::make_shared<llvm_expr_composite_extract>(
+		    *llvm_composite, indices, to_name(result), result, &extract_spir_type);
+		extract->codegen(*m_pimpl);
+	}
+	break;
+
 	case OpImageSampleImplicitLod:
 	{
 		const uint32_t res_id{ ops[1] };
@@ -562,7 +588,10 @@ void CompilerLLVM::emit_instruction(const Instruction &instruction)
 		const uint32_t right{ ops[3] };
 
 		llvm_expr *llvm_left = m_pimpl->find_variable(left);
+		assert(llvm_left);
 		llvm_expr *llvm_right = m_pimpl->find_variable(right);
+		assert(llvm_right);
+
 		const SPIRType &spir_type = get<SPIRType>(res_type);
 
 		if (opcode == OpFAdd || opcode == OpIAdd)
@@ -589,6 +618,26 @@ void CompilerLLVM::emit_instruction(const Instruction &instruction)
 			    std::make_shared<llvm_expr_div>(llvm_left, llvm_right, to_name(res_id), res_id, &spir_type);
 			div->codegen(*m_pimpl);
 		}
+	}
+	break;
+
+	case OpMatrixTimesMatrix:
+	{
+		const uint32_t res_type{ ops[0] };
+		const uint32_t res_id{ ops[1] };
+		const uint32_t left{ ops[2] };
+		const uint32_t right{ ops[3] };
+
+		llvm_expr *llvm_left = m_pimpl->find_variable(left);
+		assert(llvm_left);
+		llvm_expr *llvm_right = m_pimpl->find_variable(right);
+		assert(llvm_right);
+
+		const SPIRType &spir_type = get<SPIRType>(res_type);
+
+		std::shared_ptr<llvm_expr_mul_matrix> mul =
+		    std::make_shared<llvm_expr_mul_matrix>(llvm_left, llvm_right, to_name(res_id), res_id, &spir_type);
+		mul->codegen(*m_pimpl);
 	}
 	break;
 
@@ -710,6 +759,7 @@ void CompilerLLVM::emit_function(SPIRFunction &func, const Bitset &return_flags)
 		}
 		else if (expression_is_lvalue(var_id))
 		{
+			std::cout << "emiting: " << local_var.self << std::endl;
 			// add it where?
 			add_local_variable_name(local_var.self);
 
@@ -735,6 +785,11 @@ void CompilerLLVM::emit_function(SPIRFunction &func, const Bitset &return_flags)
 	}
 
 	m_pimpl->emit_return_void();
+
+	string unoptimized_ir = m_pimpl->get_llvm_string();
+	std::cout << "-----------------------------------" << std::endl;
+	std::cout << unoptimized_ir << std::endl;
+	std::cout << "-----------------------------------" << std::endl;
 
 	// Verify function
 	string msg;
