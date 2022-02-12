@@ -8,6 +8,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/MatrixBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
@@ -149,6 +150,7 @@ private:
 	std::unique_ptr<llvm::LLVMContext> m_llvm_context;
 	std::unique_ptr<llvm::Module> m_llvm_module;
 	std::unique_ptr<llvm::IRBuilder<>> m_llvm_builder;
+	std::unique_ptr<llvm::MatrixBuilder<llvm::IRBuilder<>>> m_llvm_matrix_builder;
 
 	// JIT stuff
 	std::unique_ptr<llvm::orc::KaleidoscopeJIT> m_jit_compiler;

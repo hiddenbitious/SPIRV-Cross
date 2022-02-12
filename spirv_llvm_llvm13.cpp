@@ -4,7 +4,6 @@
 #include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/IR/MatrixBuilder.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/TargetSelect.h"
 
@@ -41,6 +40,7 @@ void CompilerLLVM::CompilerLLVM_impl::init(bool enable_optimizations, spv::Execu
 	m_llvm_module = unique_ptr<llvm::Module>(new llvm::Module(module_name.c_str(), *m_llvm_context));
 	m_llvm_module->setDataLayout(m_jit_compiler->getDataLayout());
 	m_llvm_builder = unique_ptr<llvm::IRBuilder<>>(new llvm::IRBuilder<>(*m_llvm_context));
+	m_llvm_matrix_builder = unique_ptr<llvm::MatrixBuilder<llvm::IRBuilder<>>>(new llvm::MatrixBuilder<llvm::IRBuilder<>>(*m_llvm_builder));
 }
 
 void CompilerLLVM::CompilerLLVM_impl::reset()
@@ -216,15 +216,6 @@ llvm::Type *CompilerLLVM::CompilerLLVM_impl::spir_to_llvm_type_vector(const SPIR
 	}
 }
 
-llvm::Type *CompilerLLVM::CompilerLLVM_impl::spir_to_llvm_type_matrix(const SPIRType &spir_type,
-                                                                      const std::string &name)
-{
-	llvm::Type *llvm_type = spir_to_llvm_type_basic(spir_type.basetype);
-	llvm::ArrayType *llvm_row_type = llvm::ArrayType::get(llvm_type, spir_type.vecsize);
-	llvm::ArrayType *llvm_matrix_type = llvm::ArrayType::get(llvm_row_type, spir_type.columns);
-	return llvm_matrix_type;
-}
-
 llvm::Type *CompilerLLVM::CompilerLLVM_impl::spir_to_llvm_type(const SPIRType &spir_type, const std::string &name)
 {
 	if (spir_type.basetype == SPIRType::BaseType::Struct)
@@ -265,96 +256,24 @@ llvm::Type *CompilerLLVM::CompilerLLVM_impl::spir_to_llvm_type(const SPIRType &s
 
 void CompilerLLVM::CompilerLLVM_impl::codegen_store(const llvm_expr &ptr, const llvm_expr &variable)
 {
-	if (variable.m_spir_type.columns == 1)
-	{
-		llvm::Value *llvm_ptr = ptr.get_value();
-		assert(llvm_ptr);
+	llvm::Value *llvm_ptr = ptr.get_value();
+	assert(llvm_ptr);
 
-		llvm::Value *llvm_variable = variable.get_value();
-		assert(llvm_variable);
+	llvm::Value *llvm_variable = variable.get_value();
+	assert(llvm_variable);
 
-		m_llvm_builder->CreateStore(llvm_variable, llvm_ptr);
-	}
-	else
-	{
-		codegen_store_matrix(ptr, variable);
-	}
-}
-
-llvm::Value *CompilerLLVM::CompilerLLVM_impl::gep_matrix_column(const llvm_expr &matrix, uint32_t column)
-{
-	assert(column < matrix.m_spir_type.columns);
-
-	const SPIRType &spir_type = matrix.m_spir_type;
-	llvm::Type *llvm_column_vector_type = spir_to_llvm_type_vector(spir_type);
-	llvm_column_vector_type = llvm::PointerType::get(llvm_column_vector_type, 0);
-
-	llvm::Value *llvm_indices[2] = { construct_int32_immediate(0), construct_int32_immediate(column) };
-	llvm::GetElementPtrInst *row_gep = llvm::GetElementPtrInst::CreateInBounds(matrix.get_value(), llvm_indices);
-	m_llvm_builder->Insert(row_gep);
-
-	// Cast column to vector
-	llvm::Value *column_cast = m_llvm_builder->CreateBitCast(row_gep, llvm_column_vector_type);
-
-	return column_cast;
-}
-
-void CompilerLLVM::CompilerLLVM_impl::codegen_store_matrix(const llvm_expr &ptr, const llvm_expr &matrix)
-{
-	const SPIRType &spir_type = matrix.m_spir_type;
-	llvm::Type *llvm_column_vector_type = spir_to_llvm_type_vector(spir_type);
-	llvm_column_vector_type = llvm::PointerType::get(llvm_column_vector_type, 0);
-
-	for (uint32_t col = 0; col < spir_type.columns; ++col)
-	{
-		llvm::Value *src_column = gep_matrix_column(matrix, col);
-		llvm::Value *dst_column = gep_matrix_column(ptr, col);
-
-		// Copy vector
-		llvm::Value *load_src_vector = m_llvm_builder->CreateLoad(src_column);
-		m_llvm_builder->CreateStore(load_src_vector, dst_column);
-	}
-}
-
-void CompilerLLVM::CompilerLLVM_impl::codegen_load_matrix(const llvm_expr &ptr, const llvm_expr &matrix)
-{
-	const SPIRType &spir_type = matrix.m_spir_type;
-	llvm::Type *llvm_column_vector_type = spir_to_llvm_type_vector(spir_type);
-	llvm_column_vector_type = llvm::PointerType::get(llvm_column_vector_type, 0);
-
-	for (uint32_t col = 0; col < spir_type.columns; ++col)
-	{
-		llvm::Value *src_column = gep_matrix_column(matrix, col);
-		llvm::Value *dst_column = gep_matrix_column(ptr, col);
-
-		// Copy vector
-		llvm::Value *load_src_vector = m_llvm_builder->CreateLoad(src_column);
-		m_llvm_builder->CreateStore(load_src_vector, dst_column);
-	}
+	m_llvm_builder->CreateStore(llvm_variable, llvm_ptr);
 }
 
 void CompilerLLVM::CompilerLLVM_impl::codegen_load(const llvm_expr &ptr, std::shared_ptr<llvm_expr> variable)
 {
-	if (ptr.m_spir_type.columns == 1)
-	{
-		llvm::Value *llvm_ptr = ptr.get_value();
-		assert(llvm_ptr);
+	llvm::Value *llvm_ptr = ptr.get_value();
+	assert(llvm_ptr);
 
-		llvm::LoadInst *load_inst = m_llvm_builder->CreateLoad(llvm_ptr, variable->m_name);
-		load_inst->setAlignment(llvm::Align(calc_alignment(variable->m_spir_type)));
-		variable->set_value(load_inst);
-	}
-	else
-	{
-		// llvm::Type *llvm_matrix_type = spir_to_llvm_type_matrix(variable->m_spir_type);
-		// llvm::AllocaInst *matrix_llvm_alloca =
-		//     m_llvm_builder->CreateAlloca(llvm_matrix_type, nullptr, variable->m_name);
-		// matrix_llvm_alloca->setAlignment(llvm::Align(calc_alignment(variable->m_spir_type)));
+	llvm::LoadInst *load_inst = m_llvm_builder->CreateLoad(llvm_ptr, variable->m_name);
+	load_inst->setAlignment(llvm::Align(calc_alignment(variable->m_spir_type)));
+	variable->set_value(load_inst);
 
-		variable->set_value(ptr.get_value());
-
-		// codegen_load_matrix(ptr, *variable);
-	}
 	add_local_variable(variable->m_id, variable);
 }
 
@@ -368,7 +287,6 @@ void CompilerLLVM::CompilerLLVM_impl::codegen_shader_input_loads(
 
 		llvm::GetElementPtrInst *gep_inst =
 		    llvm::GetElementPtrInst::CreateInBounds(entry_point_input_pointer->get_value(), gep_indices, "attribs");
-		assert(gep_inst);
 
 		assert(m_llvm_builder);
 		llvm::Value *val = m_llvm_builder->Insert(gep_inst);
@@ -654,67 +572,28 @@ llvm::Constant *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen_num_literal(l
 
 llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen_const_vector(llvm_expr_constant &const_vector)
 {
-	llvm::Type *llvm_vector_type = spir_to_llvm_type_vector(const_vector.m_spir_type, const_vector.m_name);
+	llvm::Type *llvm_vector_type = spir_to_llvm_type(const_vector.m_spir_type, const_vector.m_name);
 	llvm::Value *llvm_vector = llvm::UndefValue::get(llvm_vector_type);
 
-	uint32_t idx = 0;
-	llvm::Constant *llvm_idx = llvm::ConstantInt::get(*m_llvm_context, llvm::APInt(32, idx, true));
-	llvm::Value *element = llvm_expr_codegen_num_literal(const_vector, 0, idx);
-
-	llvm::InsertElementInst *insert_element_instr =
-	    llvm::InsertElementInst::Create(llvm_vector, element, llvm_idx, const_vector.m_name);
-	m_llvm_builder->Insert(insert_element_instr);
-
-	llvm_vector = insert_element_instr;
-
-	for (idx = 1; idx < const_vector.m_spir_type.vecsize; ++idx)
+	for (uint32_t col = 0; col < const_vector.m_spir_type.columns; ++col)
 	{
-		llvm_idx = llvm::ConstantInt::get(*m_llvm_context, llvm::APInt(32, idx, true));
-		element = llvm_expr_codegen_num_literal(const_vector, 0, idx);
+		for (uint32_t row = 0; row < const_vector.m_spir_type.vecsize; ++row)
+		{
+			const uint32_t idx = col * const_vector.m_spir_type.vecsize + row;
+			llvm::Constant *llvm_idx = llvm::ConstantInt::get(*m_llvm_context, llvm::APInt(32, idx, true));
+			llvm::Value *element = llvm_expr_codegen_num_literal(const_vector, col, row);
 
-		insert_element_instr = llvm::InsertElementInst::Create(llvm_vector, element, llvm_idx, const_vector.m_name);
-		m_llvm_builder->Insert(insert_element_instr);
+			llvm::InsertElementInst *insert_element_instr =
+			    llvm::InsertElementInst::Create(llvm_vector, element, llvm_idx, const_vector.m_name);
+			m_llvm_builder->Insert(insert_element_instr);
 
-		llvm_vector = insert_element_instr;
+			llvm_vector = insert_element_instr;
+		}
 	}
 
 	const_vector.set_value(llvm_vector);
 
 	return llvm_vector;
-}
-
-llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen_const_matrix(llvm_expr_constant &const_matrix)
-{
-	const SPIRType &spir_type = const_matrix.m_spir_type;
-
-	llvm::Type *llvm_matrix_type = spir_to_llvm_type_matrix(spir_type, const_matrix.m_name);
-	llvm::AllocaInst *matrix_llvm_alloca = m_llvm_builder->CreateAlloca(llvm_matrix_type, nullptr, const_matrix.m_name);
-	matrix_llvm_alloca->setAlignment(llvm::Align(calc_alignment(const_matrix.m_spir_type)));
-
-	llvm::Value *llvm_indices[2] = { construct_int32_immediate(0) };
-
-	for (uint32_t col = 0; col < spir_type.columns; ++col)
-	{
-		// Get column
-		llvm_indices[1] = construct_int32_immediate(col);
-		llvm::GetElementPtrInst *row_gep = llvm::GetElementPtrInst::CreateInBounds(matrix_llvm_alloca, llvm_indices);
-		m_llvm_builder->Insert(row_gep);
-
-		for (uint32_t row = 0; row < spir_type.vecsize; ++row)
-		{
-			// Get row
-			llvm_indices[1] = construct_int32_immediate(row);
-			llvm::GetElementPtrInst *gep = llvm::GetElementPtrInst::CreateInBounds(row_gep, llvm_indices);
-			m_llvm_builder->Insert(gep);
-
-			llvm::Value *element = llvm_expr_codegen_num_literal(const_matrix, col, row);
-			m_llvm_builder->CreateStore(element, gep);
-		}
-	}
-
-	const_matrix.set_value(matrix_llvm_alloca);
-
-	return matrix_llvm_alloca;
 }
 
 llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen_vector(const llvm_expr_composite &composite)
@@ -723,53 +602,19 @@ llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen_vector(const llv
 	llvm::Value *llvm_vector = llvm::UndefValue::get(llvm_vector_type);
 	llvm::InsertElementInst *insert_element_instr = nullptr;
 
-	uint32_t idx = 0;
+	uint32_t row = 0;
 	for (auto &member : composite.m_members)
 	{
-		llvm::Constant *llvm_idx = llvm::ConstantInt::get(*m_llvm_context, llvm::APInt(32, idx++, true));
+		llvm::Constant *llvm_idx = llvm::ConstantInt::get(*m_llvm_context, llvm::APInt(32, row++, true));
 
 		insert_element_instr =
-		    llvm::InsertElementInst::Create(llvm_vector, member.get()->get_value(), llvm_idx, composite.m_name);
+		    llvm::InsertElementInst::Create(llvm_vector, member->get_value(), llvm_idx, composite.m_name);
 		m_llvm_builder->Insert(insert_element_instr);
 
 		llvm_vector = insert_element_instr;
 	}
 
 	return llvm_vector;
-}
-
-llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen_matrix(llvm_expr_composite &composite)
-{
-	llvm::Value *matrix = create_llvm_alloca(composite);
-	composite.set_value(matrix);
-
-	const SPIRType &matrix_spir_type = composite.m_spir_type;
-	llvm::Type *llvm_column_vector_type = spir_to_llvm_type_vector(matrix_spir_type);
-	llvm_column_vector_type = llvm::PointerType::get(llvm_column_vector_type, 0);
-
-	assert(matrix_spir_type.columns == composite.m_members.size());
-
-	for (uint32_t col = 0; col < matrix_spir_type.columns; ++col)
-	{
-		llvm::Value *src_column = composite.m_members[col]->get_value();
-		llvm::Value *dst_column = gep_matrix_column(composite, col);
-
-		// Copy vector
-		const SPIRType &member_spir_type = composite.m_members[col]->m_spir_type;
-		if (member_spir_type.columns > 1)
-		{
-			// Copying from an array
-			llvm::Value *load_src_vector = m_llvm_builder->CreateLoad(src_column);
-			m_llvm_builder->CreateStore(load_src_vector, dst_column);
-		}
-		else
-		{
-			// copying from a vector
-			m_llvm_builder->CreateStore(src_column, dst_column);
-		}
-	}
-
-	return matrix;
 }
 
 llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_expr_local_variable> variable)
@@ -808,17 +653,32 @@ llvm::GetElementPtrInst *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(
 {
 	vector<llvm::Value *> llvm_indices;
 
-	llvm_expr *llvm_base_ptr = find_variable(access_chain->m_base_ptr_id);
-	// if(llvm_base_ptr->m_spir_type.columns == 1)
-	llvm_indices.push_back(construct_int32_immediate(0));
-
-	for (uint32_t i = 0; i < access_chain->m_indices.size(); ++i)
+	if (access_chain->m_composite.m_spir_type.columns == 1)
 	{
-		llvm_indices.push_back(access_chain->m_indices[i]->codegen(*this));
+		llvm_indices.push_back(construct_int32_immediate(0));
+
+		for (uint32_t i = 0; i < access_chain->m_indices.size(); ++i)
+		{
+			llvm_indices.push_back(access_chain->m_indices[i]->codegen(*this));
+		}
+	}
+	else
+	{
+		assert(access_chain->m_indices.size() == 2);
+
+		llvm_indices.push_back(construct_int32_immediate(0));
+
+		const llvm_expr_constant *idx_const_0 = static_cast<llvm_expr_constant *>(access_chain->m_indices[0]);
+		const llvm_expr_constant *idx_const_1 = static_cast<llvm_expr_constant *>(access_chain->m_indices[1]);
+		const uint32_t col = idx_const_0->m_spir_constant.scalar(0, 0);
+		const uint32_t row = idx_const_1->m_spir_constant.scalar(0, 0);
+		const uint32_t idx = col * access_chain->m_composite.m_spir_type.vecsize + row;
+
+		llvm_indices.push_back(construct_int32_immediate(idx));
 	}
 
 	llvm::GetElementPtrInst *gep = llvm::GetElementPtrInst::CreateInBounds(
-	    llvm_base_ptr->get_value(), llvm_indices, m_parent.to_name(access_chain->m_base_ptr_id));
+	    access_chain->m_composite.get_value(), llvm_indices, m_parent.to_name(access_chain->m_composite.m_id));
 
 	m_llvm_builder->Insert(gep, access_chain->m_name);
 
@@ -838,10 +698,8 @@ llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_
 	llvm::Value *res;
 	if (constant->m_spir_type.vecsize == 1)
 		res = llvm_expr_codegen_num_literal(*constant, 0, 0, constant->m_name);
-	else if (constant->m_spir_type.columns == 1)
-		res = llvm_expr_codegen_const_vector(*constant);
 	else
-		res = llvm_expr_codegen_const_matrix(*constant);
+		res = llvm_expr_codegen_const_vector(*constant);
 
 	add_local_variable(constant->m_id, constant);
 
@@ -862,20 +720,6 @@ llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_
 	add_local_variable(composite->m_id, composite);
 
 	return composite->get_value();
-}
-
-llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_expr_composite_extract> extract)
-{
-	assert(extract->m_src_composite.m_spir_type.columns > 1);
-	assert(extract->m_indices.size() == 1);
-
-	llvm::Value *extract_val_ptr = gep_matrix_column(extract->m_src_composite, extract->m_indices[0]);
-	llvm::Value *extract_val = m_llvm_builder->CreateLoad(extract_val_ptr);
-
-	extract->set_value(extract_val);
-	add_local_variable(extract->m_id, extract);
-
-	return extract_val;
 }
 
 llvm::Function *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_expr_function_prototype> func_proto)
@@ -1148,6 +992,46 @@ llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_
 	return res;
 }
 
+llvm::Type *CompilerLLVM::CompilerLLVM_impl::spir_to_llvm_type_matrix(const SPIRType &spir_type,
+                                                                      const std::string &name)
+{
+	llvm::Type *llvm_type = spir_to_llvm_type_basic(spir_type.basetype);
+	llvm::VectorType *llvm_matrix_type = llvm::VectorType::get(llvm_type, spir_type.columns * spir_type.vecsize, false);
+	return llvm_matrix_type;
+}
+
+llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen_matrix(llvm_expr_composite &composite)
+{
+	assert(composite.m_spir_type.vecsize == composite.m_members[0]->m_spir_type.vecsize);
+	assert(composite.m_spir_type.columns == composite.m_members.size());
+
+	llvm::Type *llvm_matrix_type = spir_to_llvm_type(composite.m_spir_type, composite.m_name);
+	llvm::Value *matrix = llvm::UndefValue::get(llvm_matrix_type);
+
+	for (uint32_t col = 0; col < composite.m_spir_type.columns; ++col)
+	{
+		for (uint32_t row = 0; row < composite.m_members[0]->m_spir_type.vecsize; ++row)
+		{
+			llvm::Constant *llvm_idx = llvm::ConstantInt::get(*m_llvm_context, llvm::APInt(32, row, true));
+			llvm::ExtractElementInst *extract_element =
+			    llvm::ExtractElementInst::Create(composite.m_members[col]->get_value(), llvm_idx);
+			m_llvm_builder->Insert(extract_element);
+
+			const uint32_t idx = col * composite.m_spir_type.vecsize + row;
+			llvm_idx = llvm::ConstantInt::get(*m_llvm_context, llvm::APInt(32, idx, true));
+			llvm::InsertElementInst *insert_element_instr =
+			    llvm::InsertElementInst::Create(matrix, extract_element, llvm_idx, composite.m_name);
+			m_llvm_builder->Insert(insert_element_instr);
+
+			matrix = insert_element_instr;
+		}
+	}
+
+	composite.set_value(matrix);
+
+	return matrix;
+}
+
 llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_expr_mul_matrix> mul)
 {
 	llvm::Value *left = mul->m_left.get_value();
@@ -1158,12 +1042,29 @@ llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_
 	const SPIRType &left_spir_type = mul->m_left.m_spir_type;
 	const SPIRType &right_spir_type = mul->m_right.m_spir_type;
 
-	llvm::MatrixBuilder<llvm::IRBuilder<>> mat_builder(*m_llvm_builder);
-	llvm::CallInst *mult_inst = mat_builder.CreateMatrixMultiply(
+	llvm::CallInst *mult_inst = m_llvm_matrix_builder->CreateMatrixMultiply(
 	    left, right, left_spir_type.vecsize, left_spir_type.columns, right_spir_type.columns, mul->m_name);
 
 	mul->set_value(mult_inst);
 	add_local_variable(mul->m_id, mul);
 
 	return mult_inst;
+}
+
+llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_expr_composite_extract> extract)
+{
+	assert(extract->m_src_composite.m_spir_type.columns > 1);
+	assert(extract->m_indices.size() == 1);
+
+	const int base_idx = extract->m_indices[0] * extract->m_src_composite.m_spir_type.vecsize;
+	vector<int> llvm_mask;
+	llvm_mask.reserve(extract->m_src_composite.m_spir_type.vecsize);
+	for (uint32_t r = 0; r < extract->m_src_composite.m_spir_type.vecsize; ++r)
+		llvm_mask.push_back(base_idx + r);
+
+	llvm::Value *llvm_extract = m_llvm_builder->CreateShuffleVector(extract->m_src_composite.get_value(), llvm_mask);
+	extract->set_value(llvm_extract);
+	add_local_variable(extract->m_id, extract);
+
+	return llvm_extract;
 }

@@ -461,7 +461,7 @@ void CompilerLLVM::emit_instruction(const Instruction &instruction)
 	{
 		const uint32_t result_type{ ops[0] };
 		const uint32_t result_var{ ops[1] };
-		const uint32_t base{ ops[2] };
+		const uint32_t composite{ ops[2] };
 		const uint32_t *indices{ &ops[3] };
 
 		vector<llvm_expr *> llvm_indices;
@@ -472,9 +472,12 @@ void CompilerLLVM::emit_instruction(const Instruction &instruction)
 			llvm_indices.push_back(m_pimpl->find_variable(indices[i]));
 		}
 
+		llvm_expr *llvm_composite = m_pimpl->find_variable(composite);
+		assert(llvm_composite);
+
 		const SPIRType &spir_type = get<SPIRType>(result_type);
 		std::shared_ptr<llvm_expr_access_chain> access_chain = std::make_shared<llvm_expr_access_chain>(
-		    base, std::move(llvm_indices), to_name(result_var), result_var, &spir_type);
+		    *llvm_composite, std::move(llvm_indices), to_name(result_var), result_var, &spir_type);
 		access_chain->codegen(*m_pimpl);
 	}
 	break;
@@ -515,12 +518,12 @@ void CompilerLLVM::emit_instruction(const Instruction &instruction)
 		const uint32_t result_type{ ops[0] };
 		const uint32_t result{ ops[1] };
 
-		vector<std::shared_ptr<llvm_expr>> members;
+		vector<llvm_expr *> members;
 		members.reserve(length - 2);
 
 		for (uint32_t i = 2; i < length; ++i)
 		{
-			members.emplace_back(m_pimpl->find_variable_and_share(ops[i]));
+			members.emplace_back(m_pimpl->find_variable(ops[i]));
 		}
 
 		const SPIRType &composite_type = get<SPIRType>(result_type);
@@ -545,6 +548,7 @@ void CompilerLLVM::emit_instruction(const Instruction &instruction)
 		}
 
 		llvm_expr *llvm_composite = m_pimpl->find_variable(composite);
+		assert(llvm_composite);
 
 		const SPIRType &extract_spir_type = get<SPIRType>(extract_type);
 		std::shared_ptr<llvm_expr_composite_extract> extract = std::make_shared<llvm_expr_composite_extract>(
@@ -759,7 +763,7 @@ void CompilerLLVM::emit_function(SPIRFunction &func, const Bitset &return_flags)
 		}
 		else if (expression_is_lvalue(var_id))
 		{
-			std::cout << "emiting: " << local_var.self << std::endl;
+			// std::cout << "emiting: " << local_var.self << std::endl;
 			// add it where?
 			add_local_variable_name(local_var.self);
 
@@ -769,9 +773,9 @@ void CompilerLLVM::emit_function(SPIRFunction &func, const Bitset &return_flags)
 			SPIRType copy_type = copy_type_and_downgrade_pointer(get<SPIRType>(local_var.basetype));
 
 			// Create alloca for local variable
-			shared_ptr<llvm_expr_local_variable> local_var =
+			shared_ptr<llvm_expr_local_variable> llvm_local_var =
 			    std::make_shared<llvm_expr_local_variable>(to_name(var_id), var_id, &copy_type);
-			local_var->codegen(*m_pimpl);
+			llvm_local_var->codegen(*m_pimpl);
 		}
 	}
 
@@ -786,10 +790,10 @@ void CompilerLLVM::emit_function(SPIRFunction &func, const Bitset &return_flags)
 
 	m_pimpl->emit_return_void();
 
-	string unoptimized_ir = m_pimpl->get_llvm_string();
-	std::cout << "-----------------------------------" << std::endl;
-	std::cout << unoptimized_ir << std::endl;
-	std::cout << "-----------------------------------" << std::endl;
+	// string unoptimized_ir = m_pimpl->get_llvm_string();
+	// std::cout << "-----------------------------------" << std::endl;
+	// std::cout << unoptimized_ir << std::endl;
+	// std::cout << "-----------------------------------" << std::endl;
 
 	// Verify function
 	string msg;

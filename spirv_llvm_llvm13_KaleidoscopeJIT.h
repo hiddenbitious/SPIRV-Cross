@@ -32,6 +32,8 @@
 #include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/GVN.h"
+#include "llvm/Transforms/Scalar/LowerMatrixIntrinsics.h"
+// #include <iostream>
 #include <memory>
 
 namespace llvm
@@ -64,7 +66,8 @@ private:
 
 public:
 	KaleidoscopeJIT(std::unique_ptr<TargetProcessControl> TPC, std::unique_ptr<ExecutionSession> ES,
-	                std::unique_ptr<TPCIndirectionUtils> TPCIU, JITTargetMachineBuilder JTMB, DataLayout DL, bool optimize)
+	                std::unique_ptr<TPCIndirectionUtils> TPCIU, JITTargetMachineBuilder JTMB, DataLayout DL,
+	                bool optimize)
 	    : TPC(std::move(TPC))
 	    , ES(std::move(ES))
 	    , TPCIU(std::move(TPCIU))
@@ -151,12 +154,22 @@ private:
 			FPM->add(createReassociatePass());
 			FPM->add(createGVNPass());
 			FPM->add(createCFGSimplificationPass());
+			FPM->add(createLowerMatrixIntrinsicsPass());
 			FPM->doInitialization();
 
 			// Run the optimizations over all functions in the module being added to
 			// the JIT.
 			for (auto &F : M)
 				FPM->run(F);
+
+			// std::string Str;
+			// llvm::raw_string_ostream OS(Str);
+			// OS << M;
+			// OS.flush();
+			// std::cout << "Optimized LLVM IR" << std::endl;
+			// std::cout << "-----------------------------------" << std::endl;
+			// std::cout << OS.str() << std::endl;
+			// std::cout << "-----------------------------------" << std::endl;
 		});
 
 		return std::move(TSM);

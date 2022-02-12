@@ -162,8 +162,7 @@ public:
 class llvm_expr_composite : public llvm_expr, public std::enable_shared_from_this<llvm_expr_composite>
 {
 public:
-	llvm_expr_composite(vector<std::shared_ptr<llvm_expr>> &members, const string &name, uint32_t id,
-	                    const SPIRType *spir_type)
+	llvm_expr_composite(vector<llvm_expr *> &members, const string &name, uint32_t id, const SPIRType *spir_type)
 	    : llvm_expr(name, id, spir_type)
 	    , m_members(std::move(members))
 	{
@@ -174,7 +173,7 @@ public:
 		return generator.llvm_expr_codegen(shared_from_this());
 	}
 
-	vector<std::shared_ptr<llvm_expr>> m_members;
+	vector<llvm_expr *> m_members;
 };
 
 class llvm_expr_composite_extract : public llvm_expr, public std::enable_shared_from_this<llvm_expr_composite_extract>
@@ -237,10 +236,10 @@ public:
 class llvm_expr_access_chain : public llvm_expr, public std::enable_shared_from_this<llvm_expr_access_chain>
 {
 public:
-	llvm_expr_access_chain(uint32_t base_ptr_id, vector<llvm_expr *> indices, const string &name, uint32_t id,
+	llvm_expr_access_chain(const llvm_expr &composite, vector<llvm_expr *> indices, const string &name, uint32_t id,
 	                       const SPIRType *spir_type)
 	    : llvm_expr(name, id, spir_type)
-	    , m_base_ptr_id(base_ptr_id)
+	    , m_composite(composite)
 	    , m_indices(std::move(indices))
 	{
 	}
@@ -250,7 +249,7 @@ public:
 		return generator.llvm_expr_codegen(shared_from_this());
 	}
 
-	uint32_t m_base_ptr_id;
+	const llvm_expr &m_composite;
 	vector<llvm_expr *> m_indices;
 };
 
