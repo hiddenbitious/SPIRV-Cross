@@ -8,9 +8,9 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/MatrixBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/MatrixBuilder.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
@@ -100,8 +100,8 @@ public:
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_add> add) override;
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_sub> sub) override;
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_mul> mul) override;
-	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_mul_matrix> mul) override;
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_div> div) override;
+	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_matrix_mult> mul) override;
 
 	void *jit_compile(const string &entry_point_name);
 

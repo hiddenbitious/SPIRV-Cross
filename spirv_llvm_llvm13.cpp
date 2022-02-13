@@ -40,7 +40,8 @@ void CompilerLLVM::CompilerLLVM_impl::init(bool enable_optimizations, spv::Execu
 	m_llvm_module = unique_ptr<llvm::Module>(new llvm::Module(module_name.c_str(), *m_llvm_context));
 	m_llvm_module->setDataLayout(m_jit_compiler->getDataLayout());
 	m_llvm_builder = unique_ptr<llvm::IRBuilder<>>(new llvm::IRBuilder<>(*m_llvm_context));
-	m_llvm_matrix_builder = unique_ptr<llvm::MatrixBuilder<llvm::IRBuilder<>>>(new llvm::MatrixBuilder<llvm::IRBuilder<>>(*m_llvm_builder));
+	m_llvm_matrix_builder =
+	    unique_ptr<llvm::MatrixBuilder<llvm::IRBuilder<>>>(new llvm::MatrixBuilder<llvm::IRBuilder<>>(*m_llvm_builder));
 }
 
 void CompilerLLVM::CompilerLLVM_impl::reset()
@@ -1032,25 +1033,6 @@ llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen_matrix(llvm_expr
 	return matrix;
 }
 
-llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_expr_mul_matrix> mul)
-{
-	llvm::Value *left = mul->m_left.get_value();
-	assert(left);
-	llvm::Value *right = mul->m_right.get_value();
-	assert(right);
-
-	const SPIRType &left_spir_type = mul->m_left.m_spir_type;
-	const SPIRType &right_spir_type = mul->m_right.m_spir_type;
-
-	llvm::CallInst *mult_inst = m_llvm_matrix_builder->CreateMatrixMultiply(
-	    left, right, left_spir_type.vecsize, left_spir_type.columns, right_spir_type.columns, mul->m_name);
-
-	mul->set_value(mult_inst);
-	add_local_variable(mul->m_id, mul);
-
-	return mult_inst;
-}
-
 llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_expr_composite_extract> extract)
 {
 	assert(extract->m_src_composite.m_spir_type.columns > 1);
@@ -1067,4 +1049,23 @@ llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_
 	add_local_variable(extract->m_id, extract);
 
 	return llvm_extract;
+}
+
+llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_expr_matrix_mult> mul)
+{
+	llvm::Value *left = mul->m_left.get_value();
+	assert(left);
+	llvm::Value *right = mul->m_right.get_value();
+	assert(right);
+
+	const SPIRType &left_spir_type = mul->m_left.m_spir_type;
+	const SPIRType &right_spir_type = mul->m_right.m_spir_type;
+
+	llvm::CallInst *mult_inst = m_llvm_matrix_builder->CreateMatrixMultiply(
+	    left, right, left_spir_type.vecsize, left_spir_type.columns, right_spir_type.columns, mul->m_name);
+
+	mul->set_value(mult_inst);
+	add_local_variable(mul->m_id, mul);
+
+	return mult_inst;
 }

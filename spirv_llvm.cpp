@@ -626,6 +626,7 @@ void CompilerLLVM::emit_instruction(const Instruction &instruction)
 	break;
 
 	case OpMatrixTimesMatrix:
+	case OpMatrixTimesVector:
 	{
 		const uint32_t res_type{ ops[0] };
 		const uint32_t res_id{ ops[1] };
@@ -639,8 +640,8 @@ void CompilerLLVM::emit_instruction(const Instruction &instruction)
 
 		const SPIRType &spir_type = get<SPIRType>(res_type);
 
-		std::shared_ptr<llvm_expr_mul_matrix> mul =
-		    std::make_shared<llvm_expr_mul_matrix>(llvm_left, llvm_right, to_name(res_id), res_id, &spir_type);
+		std::shared_ptr<llvm_expr_matrix_mult> mul =
+		    std::make_shared<llvm_expr_matrix_mult>(llvm_left, llvm_right, to_name(res_id), res_id, &spir_type);
 		mul->codegen(*m_pimpl);
 	}
 	break;

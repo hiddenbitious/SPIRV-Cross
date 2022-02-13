@@ -79,8 +79,8 @@ class llvm_expr_type_cast;
 class llvm_expr_add;
 class llvm_expr_sub;
 class llvm_expr_mul;
-class llvm_expr_mul_matrix;
 class llvm_expr_div;
+class llvm_expr_matrix_mult;
 
 class llvm_expr_codegenerator
 {
@@ -98,8 +98,8 @@ public:
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_add> add) = 0;
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_sub> sub) = 0;
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_mul> mul) = 0;
-	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_mul_matrix> mul) = 0;
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_div> div) = 0;
+	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_matrix_mult> mul) = 0;
 };
 
 class llvm_expr_local_variable : public llvm_expr, public std::enable_shared_from_this<llvm_expr_local_variable>
@@ -347,10 +347,10 @@ public:
 	const llvm_expr &m_left, &m_right;
 };
 
-class llvm_expr_mul_matrix : public llvm_expr, public std::enable_shared_from_this<llvm_expr_mul_matrix>
+class llvm_expr_div : public llvm_expr, public std::enable_shared_from_this<llvm_expr_div>
 {
 public:
-	llvm_expr_mul_matrix(llvm_expr *left, llvm_expr *right, const string &name, uint32_t id, const SPIRType *spir_type)
+	llvm_expr_div(llvm_expr *left, llvm_expr *right, const string &name, uint32_t id, const SPIRType *spir_type)
 	    : llvm_expr(name, id, spir_type)
 	    , m_left(*left)
 	    , m_right(*right)
@@ -366,10 +366,10 @@ public:
 	const llvm_expr &m_left, &m_right;
 };
 
-class llvm_expr_div : public llvm_expr, public std::enable_shared_from_this<llvm_expr_div>
+class llvm_expr_matrix_mult : public llvm_expr, public std::enable_shared_from_this<llvm_expr_matrix_mult>
 {
 public:
-	llvm_expr_div(llvm_expr *left, llvm_expr *right, const string &name, uint32_t id, const SPIRType *spir_type)
+	llvm_expr_matrix_mult(llvm_expr *left, llvm_expr *right, const string &name, uint32_t id, const SPIRType *spir_type)
 	    : llvm_expr(name, id, spir_type)
 	    , m_left(*left)
 	    , m_right(*right)
