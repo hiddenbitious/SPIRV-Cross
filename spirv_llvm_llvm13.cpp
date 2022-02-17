@@ -158,7 +158,7 @@ llvm::Type *CompilerLLVM::CompilerLLVM_impl::spir_to_llvm_type_basic(SPIRType::B
 		return llvm::Type::getVoidTy(*m_llvm_context);
 
 	case SPIRType::SampledImage:
-		return llvm::PointerType::get(llvm::Type::getInt32Ty(*m_llvm_context), 0);
+		return llvm::Type::getInt32Ty(*m_llvm_context);
 
 	case SPIRType::Half:
 	case SPIRType::Boolean:
@@ -343,7 +343,11 @@ void CompilerLLVM::CompilerLLVM_impl::codegen_shader_resource_descriptors_loads(
 		// Store it in the shader attribute variable
 		llvm::Value *shader_uniform = var.spir_variable->get_value();
 		assert(shader_uniform);
-		m_llvm_builder->CreateStore(loaded_descriptor, shader_uniform);
+
+		llvm::Type *double_star_type = llvm::PointerType::get(llvm::Type::getInt32Ty(*m_llvm_context), 0);
+		double_star_type = llvm::PointerType::get(double_star_type, 0);
+		llvm::Value *casted_shader_uniform_ptr = m_llvm_builder->CreateBitCast(shader_uniform, double_star_type);
+		m_llvm_builder->CreateStore(loaded_descriptor, casted_shader_uniform_ptr);
 	}
 }
 
@@ -639,7 +643,21 @@ llvm::GlobalVariable *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_
 	llvm::Type *llvm_type = spir_to_llvm_type(variable->m_spir_type, variable->m_name);
 	llvm::Constant *initializer = llvm::ConstantAggregateZero::get(llvm_type);
 
-	// llvm::GlobalVariable *llvm_global_variable = static_cast<llvm::GlobalVariable *>(m_llvm_module->getOrInsertGlobal(name, llvm_type));
+	variable->m_llvm_global_var = new llvm::GlobalVariable(
+	    *m_llvm_module, llvm_type, false, llvm::GlobalValue::CommonLinkage, initializer, variable->m_name);
+
+	variable->m_llvm_global_var->setAlignment(llvm::MaybeAlign(calc_alignment(variable->m_spir_type)));
+	add_global_variable(variable->m_id, variable);
+
+	return variable->m_llvm_global_var;
+}
+
+llvm::GlobalVariable *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(
+    shared_ptr<llvm_expr_uniform_variables> variable)
+{
+	llvm::Type *llvm_type = llvm::PointerType::get(spir_to_llvm_type(variable->m_spir_type, variable->m_name), 0);
+	llvm::Constant *initializer = llvm::ConstantAggregateZero::get(llvm_type);
+
 	variable->m_llvm_global_var = new llvm::GlobalVariable(
 	    *m_llvm_module, llvm_type, false, llvm::GlobalValue::CommonLinkage, initializer, variable->m_name);
 
@@ -654,32 +672,51 @@ llvm::GetElementPtrInst *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(
 {
 	vector<llvm::Value *> llvm_indices;
 
-	if (access_chain->m_composite.m_spir_type.columns == 1)
-	{
-		llvm_indices.push_back(construct_int32_immediate(0));
+	llvm_indices.push_back(construct_int32_immediate(0));
 
-		for (uint32_t i = 0; i < access_chain->m_indices.size(); ++i)
+	const SPIRType *current_type = &access_chain->m_composite.m_spir_type;
+	uint32_t member_idx = 0;
+	for (uint32_t i = 0; i < access_chain->m_indices.size(); ++i)
+	{
+		if (current_type->columns == 1)
 		{
 			llvm_indices.push_back(access_chain->m_indices[i]->codegen(*this));
 		}
+		else
+		{
+			assert(access_chain->m_indices.size() - i >= 2);
+
+			const llvm_expr_constant *idx_const_0 = static_cast<llvm_expr_constant *>(access_chain->m_indices[i]);
+			const llvm_expr_constant *idx_const_1 = static_cast<llvm_expr_constant *>(access_chain->m_indices[i + 1]);
+			++i;
+
+			const uint32_t col = idx_const_0->m_spir_constant.scalar(0, 0);
+			const uint32_t row = idx_const_1->m_spir_constant.scalar(0, 0);
+			const uint32_t idx = col * current_type->vecsize + row;
+
+			llvm_indices.push_back(construct_int32_immediate(idx));
+		}
+
+		if (current_type->member_types.size())
+		{
+			current_type = &m_parent.get<const SPIRType>(current_type->member_types[member_idx++]);
+		}
+	}
+
+	llvm::Value *ptr;
+	if (access_chain->m_composite.m_spir_type.pointer)
+	{
+		llvm::LoadInst *load_inst = m_llvm_builder->CreateLoad(access_chain->m_composite.get_value());
+		load_inst->setAlignment(llvm::Align(calc_alignment(access_chain->m_spir_type)));
+		ptr = load_inst;
 	}
 	else
 	{
-		assert(access_chain->m_indices.size() == 2);
-
-		llvm_indices.push_back(construct_int32_immediate(0));
-
-		const llvm_expr_constant *idx_const_0 = static_cast<llvm_expr_constant *>(access_chain->m_indices[0]);
-		const llvm_expr_constant *idx_const_1 = static_cast<llvm_expr_constant *>(access_chain->m_indices[1]);
-		const uint32_t col = idx_const_0->m_spir_constant.scalar(0, 0);
-		const uint32_t row = idx_const_1->m_spir_constant.scalar(0, 0);
-		const uint32_t idx = col * access_chain->m_composite.m_spir_type.vecsize + row;
-
-		llvm_indices.push_back(construct_int32_immediate(idx));
+		ptr = access_chain->m_composite.get_value();
 	}
 
-	llvm::GetElementPtrInst *gep = llvm::GetElementPtrInst::CreateInBounds(
-	    access_chain->m_composite.get_value(), llvm_indices, m_parent.to_name(access_chain->m_composite.m_id));
+	llvm::GetElementPtrInst *gep =
+	    llvm::GetElementPtrInst::CreateInBounds(ptr, llvm_indices, m_parent.to_name(access_chain->m_composite.m_id));
 
 	m_llvm_builder->Insert(gep, access_chain->m_name);
 

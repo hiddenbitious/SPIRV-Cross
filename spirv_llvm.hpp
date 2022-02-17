@@ -90,6 +90,9 @@ private:
 	void emit_instruction(const Instruction &instruction) override;
 	void emit_resources();
 	void emit_interface_block(const SPIRVariable &var);
+	void emit_uniform_constants(const SPIRVariable &var);
+	void emit_buffer_block_native(const SPIRVariable &var);
+	void emit_buffer_block(const SPIRVariable &var);
 
 	ID get_next_id(void)
 	{

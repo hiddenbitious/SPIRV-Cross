@@ -151,6 +151,17 @@ void CompilerLLVM::construct_implicit_vertex_entry_point_arguments(vector<SPIRTy
 	arg_names.push_back("_attribs_");
 	arg_ids.push_back(get_next_id());
 
+	// Descriptor table
+	// UInt **
+	SPIRType descriptor_table;
+	descriptor_table.basetype = SPIRType::BaseType::UInt;
+	descriptor_table.vecsize = 1;
+	descriptor_table.pointer = true;
+	descriptor_table.pointer_depth = 4;
+	arg_types.push_back(descriptor_table);
+	arg_names.push_back("__descriptor_table__");
+	arg_ids.push_back(get_next_id());
+
 	// Varyings
 	// <4 x float>* %__gl_Position
 	arg_types.push_back(attribs_type);
@@ -224,7 +235,7 @@ void CompilerLLVM::emit_entry_point_input_loads(void)
 			locations.push_back(ir.meta[var.self].decoration.location);
 			++m_n_inputs;
 		}
-		else if (var.storage == StorageClassUniformConstant)
+		else if (var.storage == StorageClassUniformConstant || var.storage == StorageClassUniform)
 		{
 			const llvm_expr_global_variable *uniform =
 			    static_cast<llvm_expr_global_variable *>(m_pimpl->find_variable(var.self));
@@ -296,7 +307,7 @@ void CompilerLLVM::emit_vertex_shader_varyings_store(void)
 		llvm_expr_function *main_func = m_pimpl->find_function("main");
 		assert(main_func);
 
-		llvm_expr_local_variable *entry_point_output_argument = main_func->m_prototype.m_arguments[1].get();
+		llvm_expr_local_variable *entry_point_output_argument = main_func->m_prototype.m_arguments[2].get();
 		assert(entry_point_output_argument->m_name == "__gl_Position");
 
 		m_pimpl->codegen_vertex_shader_varyings_store(entry_point_output_argument, output_vars, output_var_location);
@@ -805,6 +816,38 @@ void CompilerLLVM::emit_function(SPIRFunction &func, const Bitset &return_flags)
 	}
 }
 
+void CompilerLLVM::emit_buffer_block_native(const SPIRVariable &var)
+{
+	auto &type = get<SPIRType>(var.basetype);
+
+	// Block names should never alias, but from HLSL input they kind of can because block types are reused for UAVs ...
+	auto buffer_name = to_name(type.self, false);
+
+	std::shared_ptr<llvm_expr_uniform_variables> uniform =
+	    std::make_shared<llvm_expr_uniform_variables>(buffer_name, var.self, &type);
+	uniform->codegen(*m_pimpl);
+}
+
+void CompilerLLVM::emit_buffer_block(const SPIRVariable &var)
+{
+	auto &type = get<SPIRType>(var.basetype);
+	bool ubo_block = var.storage == StorageClassUniform && has_decoration(type.self, DecorationBlock);
+
+	if (flattened_buffer_blocks.count(var.self))
+	{
+		assert(0);
+		// emit_buffer_block_flattened(var);
+	}
+	else if (is_legacy() || (!options.es && options.version == 130) ||
+	         (ubo_block && options.emit_uniform_buffer_as_plain_uniforms))
+	{
+		assert(0);
+		// emit_buffer_block_legacy(var);
+	}
+	else
+		emit_buffer_block_native(var);
+}
+
 void CompilerLLVM::emit_interface_block(const SPIRVariable &var)
 {
 	const SPIRType &spir_type = get<SPIRType>(var.basetype);
@@ -823,15 +866,36 @@ void CompilerLLVM::emit_interface_block(const SPIRVariable &var)
 	global->codegen(*m_pimpl);
 }
 
+void CompilerLLVM::emit_uniform_constants(const SPIRVariable &var)
+{
+	const SPIRType &spir_type = get<SPIRType>(var.basetype);
+
+	// Downgrade pointer
+	SPIRType copy_type = copy_type_and_downgrade_pointer(spir_type);
+
+	std::shared_ptr<llvm_expr_uniform_variables> uniform =
+	    std::make_shared<llvm_expr_uniform_variables>(to_name(var.self), var.self, &copy_type);
+	uniform->codegen(*m_pimpl);
+}
+
 void CompilerLLVM::emit_resources()
 {
 	// Emit in/out interfaces.
 	ir.for_each_typed_id<SPIRVariable>([&](uint32_t, SPIRVariable &var) {
 		auto &type = this->get<SPIRType>(var.basetype);
 
-		if (var.storage != StorageClassFunction && !is_hidden_variable(var) && type.pointer &&
-		    (var.storage != StorageClassInput && var.storage != StorageClassOutput) &&
-		    interface_variable_exists_in_entry_point(var.self))
+		bool is_hidden = is_hidden_variable(var);
+
+		// Unused output I/O variables might still be required to implement framebuffer fetch.
+		if (var.storage == StorageClassOutput && !is_legacy() &&
+		    location_is_framebuffer_fetch(get_decoration(var.self, DecorationLocation)) != 0)
+		{
+			is_hidden = false;
+		}
+
+		if (var.storage != StorageClassFunction && type.pointer &&
+		    (var.storage == StorageClassInput || var.storage == StorageClassOutput) &&
+		    interface_variable_exists_in_entry_point(var.self) && !is_hidden)
 		{
 			emit_interface_block(var);
 		}
@@ -842,6 +906,22 @@ void CompilerLLVM::emit_resources()
 		else if (var.storage == StorageClassOutput)
 		{
 			emit_interface_block(var);
+		}
+		else if (var.storage == StorageClassUniformConstant)
+		{
+			emit_uniform_constants(var);
+		}
+
+		// Output UBOs and SSBOs
+		bool is_block_storage = type.storage == StorageClassStorageBuffer || type.storage == StorageClassUniform ||
+		                        type.storage == StorageClassShaderRecordBufferKHR;
+		bool has_block_flags = ir.meta[type.self].decoration.decoration_flags.get(DecorationBlock) ||
+		                       ir.meta[type.self].decoration.decoration_flags.get(DecorationBufferBlock);
+
+		if (var.storage != StorageClassFunction && type.pointer && is_block_storage && !is_hidden_variable(var) &&
+		    has_block_flags)
+		{
+			emit_buffer_block(var);
 		}
 	});
 }

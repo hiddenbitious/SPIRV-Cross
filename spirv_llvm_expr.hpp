@@ -68,6 +68,7 @@ protected:
 
 class llvm_expr_local_variable;
 class llvm_expr_global_variable;
+class llvm_expr_uniform_variables;
 class llvm_expr_constant;
 class llvm_expr_composite;
 class llvm_expr_composite_extract;
@@ -87,6 +88,7 @@ class llvm_expr_codegenerator
 public:
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_local_variable> variable) = 0;
 	virtual llvm::GlobalVariable *llvm_expr_codegen(shared_ptr<llvm_expr_global_variable> variable) = 0;
+	virtual llvm::GlobalVariable *llvm_expr_codegen(shared_ptr<llvm_expr_uniform_variables> variable) = 0;
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_constant> constant) = 0;
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_composite> composite) = 0;
 	virtual llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_composite_extract> extract) = 0;
@@ -120,6 +122,32 @@ class llvm_expr_global_variable : public llvm_expr, public std::enable_shared_fr
 {
 public:
 	llvm_expr_global_variable(const string &name, uint32_t id, const SPIRType *spir_type)
+	    : llvm_expr(name, id, spir_type)
+	{
+	}
+
+	llvm::GlobalVariable *codegen(llvm_expr_codegenerator &generator) override
+	{
+		return generator.llvm_expr_codegen(shared_from_this());
+	}
+
+	llvm::Value *get_value() override
+	{
+		return static_cast<llvm::Value *>(m_llvm_global_var);
+	}
+
+	llvm::Value *get_value() const override
+	{
+		return static_cast<llvm::Value *>(m_llvm_global_var);
+	}
+
+	llvm::GlobalVariable *m_llvm_global_var;
+};
+
+class llvm_expr_uniform_variables : public llvm_expr, public std::enable_shared_from_this<llvm_expr_uniform_variables>
+{
+public:
+	llvm_expr_uniform_variables(const string &name, uint32_t id, const SPIRType *spir_type)
 	    : llvm_expr(name, id, spir_type)
 	{
 	}

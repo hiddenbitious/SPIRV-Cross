@@ -89,6 +89,7 @@ public:
 	// Implements llvm_expr_codegenerator pure virtual functions
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_local_variable> variable) override;
 	llvm::GlobalVariable *llvm_expr_codegen(shared_ptr<llvm_expr_global_variable> variable) override;
+	llvm::GlobalVariable *llvm_expr_codegen(shared_ptr<llvm_expr_uniform_variables> variable) override;
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_constant> constant) override;
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_composite> composite) override;
 	llvm::Value *llvm_expr_codegen(shared_ptr<llvm_expr_composite_extract> extract) override;
