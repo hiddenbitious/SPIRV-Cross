@@ -158,7 +158,7 @@ llvm::Type *CompilerLLVM::CompilerLLVM_impl::spir_to_llvm_type_basic(SPIRType::B
 		return llvm::Type::getVoidTy(*m_llvm_context);
 
 	case SPIRType::SampledImage:
-		return llvm::Type::getInt32Ty(*m_llvm_context);
+		return llvm::Type::getVoidTy(*m_llvm_context);
 
 	case SPIRType::Half:
 	case SPIRType::Boolean:
@@ -302,6 +302,12 @@ void CompilerLLVM::CompilerLLVM_impl::codegen_shader_resource_descriptors_loads(
     const llvm_expr_local_variable *entry_point_descriptors_table,
     const vector<uniform_constant_information> &descriptor_information)
 {
+	// llvm_expr_function_prototype *func = find_function_prototype("descriptor_debugger");
+	// assert(func);
+
+	// vector<llvm::Value *> llvm_args(1, nullptr);
+	// llvm::Type *star_type = llvm::PointerType::get(llvm::Type::getVoidTy(*m_llvm_context), 0);
+
 	for (const uniform_constant_information &var : descriptor_information)
 	{
 		// Gep indices
@@ -319,6 +325,12 @@ void CompilerLLVM::CompilerLLVM_impl::codegen_shader_resource_descriptors_loads(
 		// Load pointer to descriptor set
 		llvm::Value *loaded_desc_set_ptr = m_llvm_builder->CreateLoad(desc_set_ptr_val);
 
+		// {
+		// 	llvm_args[0] = m_llvm_builder->CreateBitCast(loaded_desc_set_ptr, star_type);
+		// 	llvm::CallInst *llvm_call =
+		// 	    m_llvm_builder->CreateCall(static_cast<llvm::Function *>(func->get_value()), llvm_args);
+		// }
+
 		gep_indices[0] = construct_int32_immediate(0);
 		llvm::GetElementPtrInst *gep_into_set =
 		    llvm::GetElementPtrInst::CreateInBounds(loaded_desc_set_ptr, gep_indices, "__descriptor_table__");
@@ -328,6 +340,12 @@ void CompilerLLVM::CompilerLLVM_impl::codegen_shader_resource_descriptors_loads(
 
 		// Load descriptor set
 		llvm::Value *loaded_set = m_llvm_builder->CreateLoad(set_star);
+
+		// {
+		// 	llvm_args[0] = m_llvm_builder->CreateBitCast(loaded_set, star_type);
+		// 	llvm::CallInst *llvm_call =
+		// 	    m_llvm_builder->CreateCall(static_cast<llvm::Function *>(func->get_value()), llvm_args);
+		// }
 
 		// Now offset inside the set to the appropriate binding
 		gep_indices[0] = construct_int32_immediate(var.binding);
@@ -340,14 +358,49 @@ void CompilerLLVM::CompilerLLVM_impl::codegen_shader_resource_descriptors_loads(
 		// Load the actual descriptor
 		llvm::Value *loaded_descriptor = m_llvm_builder->CreateLoad(binding_val);
 
-		// Store it in the shader attribute variable
-		llvm::Value *shader_uniform = var.spir_variable->get_value();
-		assert(shader_uniform);
+		// {
+		// 	llvm_args[0] = m_llvm_builder->CreateBitCast(loaded_descriptor, star_type);
+		// 	llvm::CallInst *llvm_call =
+		// 	    m_llvm_builder->CreateCall(static_cast<llvm::Function *>(func->get_value()), llvm_args);
+		// }
 
-		llvm::Type *double_star_type = llvm::PointerType::get(llvm::Type::getInt32Ty(*m_llvm_context), 0);
-		double_star_type = llvm::PointerType::get(double_star_type, 0);
-		llvm::Value *casted_shader_uniform_ptr = m_llvm_builder->CreateBitCast(shader_uniform, double_star_type);
-		m_llvm_builder->CreateStore(loaded_descriptor, casted_shader_uniform_ptr);
+		// One last load for uniform buffers
+		if (var.spir_variable->m_spir_type.basetype == SPIRType::BaseType::Struct)
+		{
+			gep_indices[0] = construct_int32_immediate(0);
+			llvm::GetElementPtrInst *last_gep =
+			    llvm::GetElementPtrInst::CreateInBounds(loaded_descriptor, gep_indices, "__descriptor_table__");
+			llvm::Value *last_star = m_llvm_builder->Insert(last_gep);
+
+			loaded_descriptor = m_llvm_builder->CreateLoad(last_star);
+
+			// Store it in the shader attribute variable
+			llvm::Value *shader_uniform = var.spir_variable->get_value();
+			assert(shader_uniform);
+
+			llvm::Type *double_star_type = llvm::PointerType::get(llvm::Type::getVoidTy(*m_llvm_context), 0);
+			double_star_type = llvm::PointerType::get(double_star_type, 0);
+			llvm::Value *casted_shader_uniform_ptr = m_llvm_builder->CreateBitCast(shader_uniform, double_star_type);
+			m_llvm_builder->CreateStore(loaded_descriptor, casted_shader_uniform_ptr);
+		}
+		else
+		{
+			// Store it in the shader attribute variable
+			llvm::Value *shader_uniform = var.spir_variable->get_value();
+			assert(shader_uniform);
+
+			llvm::Type *double_star_type = llvm::PointerType::get(llvm::Type::getVoidTy(*m_llvm_context), 0);
+			double_star_type = llvm::PointerType::get(llvm::PointerType::get(double_star_type, 0), 0);
+			llvm::Value *casted_shader_uniform_ptr = m_llvm_builder->CreateBitCast(shader_uniform, double_star_type);
+			m_llvm_builder->CreateStore(loaded_descriptor, casted_shader_uniform_ptr);
+		}
+
+		// {
+		// 	llvm_args[0] = m_llvm_builder->CreateBitCast(loaded_descriptor, star_type);
+		// 	;
+		// 	llvm::CallInst *llvm_call =
+		// 	    m_llvm_builder->CreateCall(static_cast<llvm::Function *>(func->get_value()), llvm_args);
+		// }
 	}
 }
 

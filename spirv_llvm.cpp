@@ -152,12 +152,11 @@ void CompilerLLVM::construct_implicit_vertex_entry_point_arguments(vector<SPIRTy
 	arg_ids.push_back(get_next_id());
 
 	// Descriptor table
-	// UInt **
 	SPIRType descriptor_table;
-	descriptor_table.basetype = SPIRType::BaseType::UInt;
+	descriptor_table.basetype = SPIRType::BaseType::Void;
 	descriptor_table.vecsize = 1;
 	descriptor_table.pointer = true;
-	descriptor_table.pointer_depth = 4;
+	descriptor_table.pointer_depth = 5;
 	arg_types.push_back(descriptor_table);
 	arg_names.push_back("__descriptor_table__");
 	arg_ids.push_back(get_next_id());
@@ -185,12 +184,11 @@ void CompilerLLVM::construct_implicit_fragment_entry_point_arguments(vector<SPIR
 	arg_ids.push_back(get_next_id());
 
 	// Descriptor table
-	// UInt **
 	SPIRType descriptor_table;
-	descriptor_table.basetype = SPIRType::BaseType::UInt;
+	descriptor_table.basetype = SPIRType::BaseType::Void;
 	descriptor_table.vecsize = 1;
 	descriptor_table.pointer = true;
-	descriptor_table.pointer_depth = 4;
+	descriptor_table.pointer_depth = 5;
 	arg_types.push_back(descriptor_table);
 	arg_names.push_back("__descriptor_table__");
 	arg_ids.push_back(get_next_id());
@@ -369,33 +367,56 @@ void CompilerLLVM::emit_shader_outputs_stores(void)
 
 void CompilerLLVM::emit_glsl_function_prototypes()
 {
-	const ID func_id = get_next_id();
-	const string func_name = "ImageSampleImplicitLod";
-	SPIRType spir_return_type;
-	spir_return_type.basetype = SPIRType::BaseType::Float;
-	spir_return_type.vecsize = 4;
+	{
+		const ID func_id = get_next_id();
+		const string func_name = "ImageSampleImplicitLod";
+		SPIRType spir_return_type;
+		spir_return_type.basetype = SPIRType::BaseType::Float;
+		spir_return_type.vecsize = 4;
 
-	vector<std::shared_ptr<llvm_expr_local_variable>> arguments;
+		vector<std::shared_ptr<llvm_expr_local_variable>> arguments;
 
-	SPIRType image_sampler_ptr;
-	image_sampler_ptr.basetype = SPIRType::BaseType::UInt;
-	image_sampler_ptr.pointer = true;
-	image_sampler_ptr.pointer_depth = 1;
-	ID id = get_next_id();
-	arguments.emplace_back(std::make_shared<llvm_expr_local_variable>("image_sampler", id, &image_sampler_ptr));
+		SPIRType image_sampler_ptr;
+		image_sampler_ptr.basetype = SPIRType::BaseType::Void;
+		image_sampler_ptr.pointer = true;
+		image_sampler_ptr.pointer_depth = 1;
+		ID id = get_next_id();
+		arguments.emplace_back(std::make_shared<llvm_expr_local_variable>("image_sampler", id, &image_sampler_ptr));
 
-	SPIRType texture_coordinates;
-	texture_coordinates.basetype = SPIRType::BaseType::Float;
-	texture_coordinates.pointer = false;
-	texture_coordinates.pointer_depth = 0;
-	texture_coordinates.vecsize = 4;
-	texture_coordinates.self = get_next_id();
-	id = get_next_id();
-	arguments.emplace_back(std::make_shared<llvm_expr_local_variable>("tex_coords", id, &texture_coordinates));
+		SPIRType texture_coordinates;
+		texture_coordinates.basetype = SPIRType::BaseType::Float;
+		texture_coordinates.pointer = false;
+		texture_coordinates.pointer_depth = 0;
+		texture_coordinates.vecsize = 4;
+		texture_coordinates.self = get_next_id();
+		id = get_next_id();
+		arguments.emplace_back(std::make_shared<llvm_expr_local_variable>("tex_coords", id, &texture_coordinates));
 
-	std::shared_ptr<llvm_expr_function_prototype> func =
-	    std::make_shared<llvm_expr_function_prototype>(arguments, func_name, func_id, &spir_return_type);
-	func->codegen(*m_pimpl);
+		std::shared_ptr<llvm_expr_function_prototype> func =
+		    std::make_shared<llvm_expr_function_prototype>(arguments, func_name, func_id, &spir_return_type);
+		func->codegen(*m_pimpl);
+	}
+
+	{
+		const ID func_id = get_next_id();
+		const string func_name = "descriptor_debugger";
+		SPIRType spir_return_type;
+		spir_return_type.basetype = SPIRType::BaseType::Void;
+		spir_return_type.vecsize = 1;
+
+		vector<std::shared_ptr<llvm_expr_local_variable>> arguments;
+
+		SPIRType image_sampler_ptr;
+		image_sampler_ptr.basetype = SPIRType::BaseType::Void;
+		image_sampler_ptr.pointer = true;
+		image_sampler_ptr.pointer_depth = 1;
+		ID id = get_next_id();
+		arguments.emplace_back(std::make_shared<llvm_expr_local_variable>("descriptor", id, &image_sampler_ptr));
+
+		std::shared_ptr<llvm_expr_function_prototype> func =
+		    std::make_shared<llvm_expr_function_prototype>(arguments, func_name, func_id, &spir_return_type);
+		func->codegen(*m_pimpl);
+	}
 }
 
 void CompilerLLVM::emit_function_prototype(SPIRFunction &spir_func, const Bitset &)
