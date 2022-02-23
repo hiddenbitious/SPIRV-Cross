@@ -279,6 +279,12 @@ void CompilerLLVM::emit_entry_point_input_loads(void)
 	}
 }
 
+bool CompilerLLVM::is_per_vertex_struct(const SPIRVariable &var)
+{
+	const SPIRType &var_type = get<SPIRType>(var.basetype);
+	return to_name(var_type.self) == "gl_PerVertex";
+}
+
 void CompilerLLVM::emit_vertex_shader_varyings_store(void)
 {
 	vector<llvm_expr_global_variable *> output_vars;
@@ -292,8 +298,17 @@ void CompilerLLVM::emit_vertex_shader_varyings_store(void)
 			llvm_expr_global_variable *varying =
 			    static_cast<llvm_expr_global_variable *>(m_pimpl->find_variable(var.self));
 			assert(varying);
-			output_vars.push_back(varying);
-			output_var_location.push_back(ir.meta[var.self].decoration.location);
+
+			if (is_per_vertex_struct(var))
+			{
+				output_vars.insert(output_vars.begin(), varying);
+				output_var_location.insert(output_var_location.begin(), ir.meta[var.self].decoration.location);
+			}
+			else
+			{
+				output_vars.push_back(varying);
+				output_var_location.push_back(ir.meta[var.self].decoration.location);
+			}
 			++m_n_outputs;
 		}
 	});
