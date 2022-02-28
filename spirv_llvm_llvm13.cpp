@@ -1125,16 +1125,28 @@ llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen_matrix(llvm_expr
 
 llvm::Value *CompilerLLVM::CompilerLLVM_impl::llvm_expr_codegen(shared_ptr<llvm_expr_composite_extract> extract)
 {
-	assert(extract->m_src_composite.m_spir_type.columns > 1);
 	assert(extract->m_indices.size() == 1);
 
-	const int base_idx = extract->m_indices[0] * extract->m_src_composite.m_spir_type.vecsize;
-	vector<int> llvm_mask;
-	llvm_mask.reserve(extract->m_src_composite.m_spir_type.vecsize);
-	for (uint32_t r = 0; r < extract->m_src_composite.m_spir_type.vecsize; ++r)
-		llvm_mask.push_back(base_idx + r);
+	llvm::Value *llvm_extract;
+	if (extract->m_src_composite.m_spir_type.columns > 1)
+	{
+		const int base_idx = extract->m_indices[0] * extract->m_src_composite.m_spir_type.vecsize;
+		vector<int> llvm_mask;
+		llvm_mask.reserve(extract->m_src_composite.m_spir_type.vecsize);
+		for (uint32_t r = 0; r < extract->m_src_composite.m_spir_type.vecsize; ++r)
+			llvm_mask.push_back(base_idx + r);
 
-	llvm::Value *llvm_extract = m_llvm_builder->CreateShuffleVector(extract->m_src_composite.get_value(), llvm_mask);
+		llvm_extract = m_llvm_builder->CreateShuffleVector(extract->m_src_composite.get_value(), llvm_mask);
+		extract->set_value(llvm_extract);
+	}
+	else
+	{
+		llvm::Constant *llvm_idx =
+		    llvm::ConstantInt::get(*m_llvm_context, llvm::APInt(32, extract->m_indices[0], true));
+		llvm_extract = llvm::ExtractElementInst::Create(extract->m_src_composite.get_value(), llvm_idx);
+		m_llvm_builder->Insert(llvm_extract);
+	}
+
 	extract->set_value(llvm_extract);
 	add_local_variable(extract->m_id, extract);
 
